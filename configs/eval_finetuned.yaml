@@ -1,0 +1,19 @@
+# Fine-tuned checkpoint WER evaluation.
+# Usage: python eval_wer.py --config configs/eval_finetuned.yaml
+#
+# Update model-dir to point at the checkpoint you want to score, e.g.
+#   ./whisper-small-aihub-studio/checkpoint-4000
+# Set processor-dir if the processor lives in a different folder
+# (defaults to model-dir, falling back to the base Whisper model).
+
+dataset-path: ./aihub_studio_dataset
+split: test
+model-dir: ./whisper-small-aihub-studio/checkpoint-4000
+processor-dir: null
+output-json: ./results/finetuned_wer.json
+
+num-proc: 2
+eval-batch-size: 8
+generation-max-length: 225
+max-samples: null
+no-fp16: false

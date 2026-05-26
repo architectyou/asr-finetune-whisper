@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare WER JSON outputs from eval_baseline.py.")
+    parser = argparse.ArgumentParser(description="Compare WER JSON outputs from eval_wer.py.")
     parser.add_argument("--baseline-json", default="./results/baseline_wer.json")
     parser.add_argument("--finetuned-json", default="./results/finetuned_wer.json")
     parser.add_argument("--output-json", default="./results/wer_comparison.json")

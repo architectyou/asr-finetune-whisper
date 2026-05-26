@@ -22,18 +22,25 @@ from transformers import (
     WhisperTokenizer,
 )
 
-from train_tutorial import (
+from train import (
     MODEL_NAME,
     DataCollatorSpeechSeq2SeqWithPadding,
+    _load_yaml_defaults,
     build_prepare_dataset,
 )
 
 
 def parse_args() -> argparse.Namespace:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None)
+    pre_args, _ = pre_parser.parse_known_args()
+    yaml_defaults = _load_yaml_defaults(pre_args.config)
+
     parser = argparse.ArgumentParser(
         description="Compute WER for Whisper on a dataset split without training.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--config", default=None, help="YAML config file with default arguments.")
     parser.add_argument("--dataset-path", default="./aihub_studio_dataset")
     parser.add_argument("--split", default="test", choices=["train", "validation", "test"])
     parser.add_argument("--model-dir", default=None, help="Fine-tuned checkpoint directory.")
@@ -44,6 +51,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generation-max-length", type=int, default=225)
     parser.add_argument("--max-samples", type=int, default=None, help="Limit eval samples for smoke tests.")
     parser.add_argument("--no-fp16", action="store_true")
+
+    if yaml_defaults:
+        unknown = set(yaml_defaults) - {action.dest for action in parser._actions}
+        if unknown:
+            raise ValueError(f"Unknown config keys: {sorted(unknown)}")
+        parser.set_defaults(**yaml_defaults)
+
     return parser.parse_args()
 
 

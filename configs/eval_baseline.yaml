@@ -1,0 +1,14 @@
+# Baseline (no fine-tuning) WER evaluation.
+# Usage: python eval_wer.py --config configs/eval_baseline.yaml
+
+dataset-path: ./aihub_studio_dataset
+split: test                 # train | validation | test
+model-dir: null             # null → uses MODEL_NAME (openai/whisper-small)
+processor-dir: null
+output-json: ./results/baseline_wer.json
+
+num-proc: 2
+eval-batch-size: 8
+generation-max-length: 225
+max-samples: null           # set int for smoke runs
+no-fp16: false

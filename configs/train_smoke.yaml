@@ -1,0 +1,20 @@
+# Tiny config for smoke-testing the training loop end-to-end.
+# Usage: python train.py --config configs/train_smoke.yaml
+
+dataset-path: ./aihub_studio_dataset
+language: ko
+eval-split: validation
+num-proc: 2
+
+output-dir: ./whisper-small-smoke
+final-eval-json: ./results/smoke_wer.json
+
+max-steps: 20
+train-batch-size: 2
+eval-batch-size: 2
+warmup-steps: 2
+save-steps: 20
+eval-steps: 20
+logging-steps: 5
+max-train-samples: 16
+max-eval-samples: 8

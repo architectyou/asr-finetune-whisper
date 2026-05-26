@@ -9,8 +9,10 @@ the raw Emilia schema (__key__/__url__/json/mp3) and the normalized schema
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -18,6 +20,7 @@ import evaluate
 import librosa
 import numpy as np
 import torch
+import yaml
 from datasets import load_from_disk
 from dotenv import load_dotenv
 from transformers import (
@@ -38,11 +41,30 @@ LANGUAGE_PREFIX = {
 }
 
 
+def _load_yaml_defaults(config_path: Optional[str]) -> Dict[str, Any]:
+    if not config_path:
+        return {}
+    path = Path(config_path).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Config root must be a mapping, got {type(data).__name__}")
+    return {key.replace("-", "_"): value for key, value in data.items()}
+
+
 def parse_args() -> argparse.Namespace:
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--config", default=None)
+    pre_args, _ = pre_parser.parse_known_args()
+    yaml_defaults = _load_yaml_defaults(pre_args.config)
+
     parser = argparse.ArgumentParser(
         description="Fine-tune Whisper small on local ASR data (AI-Hub studio or Emilia KO/JA).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--config", default=None, help="YAML config file with default arguments.")
     parser.add_argument("--dataset-path", default="./aihub_studio_dataset")
     parser.add_argument("--output-dir", default="./whisper-small-aihub-studio")
     parser.add_argument("--env-file", default=".env")
@@ -78,6 +100,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--push-to-hub", action="store_true")
     parser.add_argument("--resume-from-checkpoint", default=None)
     parser.add_argument(
+        "--final-eval-json",
+        default="./results/finetuned_wer.json",
+        help="Path to save final WER JSON after training (set empty string to skip).",
+    )
+    parser.add_argument(
         "--max-train-samples",
         type=int,
         default=None,
@@ -89,6 +116,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional cap on eval split size during training.",
     )
+
+    if yaml_defaults:
+        unknown = set(yaml_defaults) - {action.dest for action in parser._actions}
+        if unknown:
+            raise ValueError(f"Unknown config keys: {sorted(unknown)}")
+        parser.set_defaults(**yaml_defaults)
+
     return parser.parse_args()
 
 
@@ -304,6 +338,35 @@ def main() -> None:
 
     processor.save_pretrained(training_args.output_dir)
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
+
+    if args.final_eval_json:
+        print("Running final evaluation on best model...")
+        metrics = trainer.evaluate()
+        wer = float(metrics.get("eval_wer", float("nan")))
+
+        output_json = resolve_path(args.final_eval_json)
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "dataset_path": str(dataset_path),
+            "split": args.eval_split,
+            "model_dir": str(output_dir),
+            "language": args.language,
+            "max_steps": args.max_steps,
+            "n_samples": len(common_voice[args.eval_split]),
+            "wer": wer,
+            "metrics": {
+                key: float(value)
+                for key, value in metrics.items()
+                if isinstance(value, (int, float))
+            },
+        }
+        output_json.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"Final WER ({args.eval_split}): {wer:.4f}%")
+        print(f"Saved results to {output_json}")
+
 
 if __name__ == "__main__":
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")

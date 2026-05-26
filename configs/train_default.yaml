@@ -1,0 +1,37 @@
+# Sample config for train.py
+# Usage: python train.py --config configs/train_default.yaml
+# CLI flags still override values here, e.g.:
+#   python train.py --config configs/train_default.yaml --max-steps 1000
+#
+# Keys use either dashes or underscores (both are accepted).
+
+# --- Data ---
+dataset-path: ./aihub_studio_dataset
+language: ko             # one of: ko, ja, all
+eval-split: validation   # validation | test
+num-proc: 2
+max-train-samples: null  # set to integer for smoke runs
+max-eval-samples: null
+
+# --- Output ---
+output-dir: ./whisper-small-aihub-studio
+env-file: .env
+final-eval-json: ./results/finetuned_wer.json
+
+# --- Training schedule ---
+max-steps: 4000
+train-batch-size: 16
+eval-batch-size: 8
+gradient-accumulation-steps: 1
+learning-rate: 1.0e-5
+warmup-steps: 500
+save-steps: 1000
+eval-steps: 1000
+logging-steps: 25
+generation-max-length: 225
+
+# --- Toggles ---
+no-fp16: false
+no-gradient-checkpointing: false
+push-to-hub: false
+resume-from-checkpoint: null
