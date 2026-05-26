@@ -1,0 +1,11 @@
+aihub_studio_dataset/
+whisper-small-aihub-studio/
+whisper-small-ko/
+whisper-small-ko-ja/
+asr_train/
+results/
+.env
+
+__pycache__/
+*.py[codz]
+*$py.class
