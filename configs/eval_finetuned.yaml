@@ -9,7 +9,9 @@
 dataset-path: ./aihub_studio_dataset
 split: test
 model-dir: ./whisper-small-aihub-studio/checkpoint-4000
-processor-dir: null
+# Processor (tokenizer + feature extractor) is saved at the parent output_dir
+# by train.py, not inside each checkpoint subfolder.
+processor-dir: ./whisper-small-aihub-studio
 output-json: ./results/finetuned_wer.json
 
 num-proc: 2

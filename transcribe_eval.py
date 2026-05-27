@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import random
 import tempfile
 from pathlib import Path
 from typing import Optional, Tuple, Union
@@ -42,23 +43,50 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-dir", default="./whisper-small-ko-ja/checkpoint-100")
     parser.add_argument("--processor-dir", default="./whisper-small-ko-ja")
     parser.add_argument("--dataset-path", default=default_dataset_path())
-    parser.add_argument("--dataset-index", type=int, default=None)
+    parser.add_argument(
+        "--dataset-index",
+        type=int,
+        default=None,
+        help="Specific sample index. Omit to draw a random sample from the split.",
+    )
     parser.add_argument("--audio-path", default=None)
     parser.add_argument("--language", choices=LANGUAGE_PREFIX.keys(), default="ko")
     parser.add_argument("--split", default="test")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional RNG seed for reproducible random sampling.",
+    )
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--max-new-tokens", type=int, default=225)
     parser.add_argument("--fp16", action="store_true", help="Use fp16 inference on CUDA.")
     args = parser.parse_args()
 
-    if (args.dataset_index is None) == (args.audio_path is None):
-        parser.error("Use exactly one of --dataset-index or --audio-path.")
+    if args.dataset_index is not None and args.audio_path is not None:
+        parser.error("Use only one of --dataset-index or --audio-path.")
 
     return args
 
 
 def resolve_path(path: str) -> Path:
     return Path(path).expanduser().resolve()
+
+
+def resolve_model_id(model_id: str) -> Union[str, Path]:
+    """Return a Path for local checkpoints, or the raw string for HF Hub IDs.
+
+    A value like "openai/whisper-small" must stay as-is so from_pretrained can
+    fetch it from the Hugging Face Hub. Anything that points at an existing
+    file/dir, starts with "./"/"/"/"~", or contains a backslash is treated as
+    a local path.
+    """
+    expanded = Path(model_id).expanduser()
+    if expanded.exists():
+        return expanded.resolve()
+    if model_id.startswith((".", "/", "~")) or "\\" in model_id:
+        return expanded.resolve()
+    return model_id
 
 
 def log(message: str) -> None:
@@ -136,22 +164,28 @@ def decode_audio_metadata(audio: dict) -> dict:
 def load_dataset_audio(
     dataset_path: Path,
     split: str,
-    index: int,
+    index: Optional[int],
     fallback_language: str,
-) -> Tuple[dict, Optional[str], str]:
+    rng: Optional[random.Random] = None,
+) -> Tuple[dict, Optional[str], str, int]:
     from datasets import load_from_disk
 
     dataset = load_from_disk(str(dataset_path))
     if split not in dataset:
         raise ValueError(f"Split '{split}' not found. Available splits: {list(dataset.keys())}")
 
-    audio_column = "audio" if "audio" in dataset[split].column_names else "mp3"
-    example = dataset[split][index]
+    split_data = dataset[split]
+    if index is None:
+        picker = rng if rng is not None else random
+        index = picker.randrange(len(split_data))
+
+    audio_column = "audio" if "audio" in split_data.column_names else "mp3"
+    example = split_data[index]
     audio_meta = example[audio_column]
     audio = decode_audio_metadata(audio_meta)
     reference = get_sentence(example)
     language = get_language(example, audio_meta, fallback_language)
-    return audio, reference, language
+    return audio, reference, language, index
 
 
 def load_file_audio(audio_path: Path) -> dict:
@@ -213,33 +247,39 @@ def transcribe(
 
 def main() -> None:
     args = parse_args()
-    model_dir = resolve_path(args.model_dir)
-    processor_dir = resolve_path(args.processor_dir)
+    model_dir = resolve_model_id(args.model_dir)
+    processor_dir = resolve_model_id(args.processor_dir)
     device = torch.device(args.device)
     use_fp16 = args.fp16 and device.type == "cuda"
 
-    if not has_model_weights(model_dir):
+    if isinstance(model_dir, Path) and not has_model_weights(model_dir):
         raise SystemExit(
             f"No model weights found in {model_dir}. "
             "Expected model.safetensors or pytorch_model.bin. "
             "Check whether the training checkpoint was saved correctly."
         )
 
-    if args.dataset_index is not None:
-        log(f"Loading dataset sample: {args.dataset_path}:{args.split}[{args.dataset_index}]")
-        audio, reference, language = load_dataset_audio(
-            dataset_path=resolve_path(args.dataset_path),
-            split=args.split,
-            index=args.dataset_index,
-            fallback_language=args.language,
-        )
-        source = f"{args.dataset_path}:{args.split}[{args.dataset_index}]"
-    else:
+    if args.audio_path is not None:
         log(f"Loading audio file: {args.audio_path}")
         audio = load_file_audio(resolve_path(args.audio_path))
         reference = None
         language = args.language
         source = args.audio_path
+    else:
+        rng = random.Random(args.seed) if args.seed is not None else None
+        if args.dataset_index is None:
+            log(f"Sampling random example from {args.dataset_path}:{args.split}"
+                + (f" (seed={args.seed})" if args.seed is not None else ""))
+        else:
+            log(f"Loading dataset sample: {args.dataset_path}:{args.split}[{args.dataset_index}]")
+        audio, reference, language, chosen_index = load_dataset_audio(
+            dataset_path=resolve_path(args.dataset_path),
+            split=args.split,
+            index=args.dataset_index,
+            fallback_language=args.language,
+            rng=rng,
+        )
+        source = f"{args.dataset_path}:{args.split}[{chosen_index}]"
 
     log(f"Loading processor: {processor_dir}")
     processor = WhisperProcessor.from_pretrained(str(processor_dir), task="transcribe")
